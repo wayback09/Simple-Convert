@@ -1,0 +1,17 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "hacdot-convert",
+  "version": "2.0.0",
+  "outputfilename": "hacdot-convert",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:build": "",
+  "build:dir": "build",
+  "assetdir": "frontend",
+  "wailsjsdir": "frontend/wailsjs",
+  "author": {
+    "name": "Antigravity",
+    "email": "antigravity@google.com"
+  }
+}

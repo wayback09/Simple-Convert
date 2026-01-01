@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hacdot Convert</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Container for the entire application -->
+  <div class="app-container">
+    
+    <!-- 1. Setup Screen (FFmpeg Downloader) -->
+    <div id="setup-screen" class="screen active">
+      <div class="setup-card">
+        <div class="logo-container">
+          <img src="logo.png" alt="Hacdot Convert Logo" class="app-logo-large">
+        </div>
+        <h1 class="headline-lg">HACDOT_CONVERT</h1>
+        <p class="body-md secondary-text">
+          Offline desktop media converter. To begin, we need to download and install the FFmpeg binaries (approx. 130MB). This is a one-time setup. No internet will be required afterwards.
+        </p>
+
+        <div class="setup-actions">
+          <button id="download-btn" class="btn primary-btn">INITIALIZE SETUP</button>
+        </div>
+
+        <div id="setup-progress-container" class="progress-container hidden">
+          <div class="progress-header">
+            <span id="setup-status" class="label-md">Downloading FFmpeg...</span>
+            <span id="setup-progress-pct" class="label-md">0%</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div id="setup-progress-bar" class="progress-bar-fill" style="width: 0%"></div>
+          </div>
+          <div class="setup-stats label-md secondary-text">
+            <span id="setup-downloaded">0 MB</span> / <span id="setup-total">0 MB</span>
+          </div>
+        </div>
+
+        <div id="setup-error-card" class="error-card hidden">
+          <span class="label-md error-label">ERROR</span>
+          <p id="setup-error-msg" class="body-sm"></p>
+          <button id="retry-btn" class="btn secondary-btn">RETRY SETUP</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Main Converter Dashboard -->
+    <div id="app-screen" class="screen hidden">
+      <!-- Main Header -->
+      <header class="app-header">
+        <div class="header-brand">
+          <img src="logo.png" alt="Logo" class="app-logo-small">
+          <span class="brand-title">HACDOT CONVERT</span>
+        </div>
+        <div class="header-actions">
+          <span class="label-md secondary-text">v1.0.0</span>
+        </div>
+      </header>
+
+      <!-- Main Layout Grid -->
+      <main class="dashboard-grid">
+        
+        <!-- Left Panel: Source File & Metadata -->
+        <section class="grid-panel" id="source-panel">
+          <h2 class="headline-md">SOURCE FILE</h2>
+          
+          <!-- Drag and Drop Zone -->
+          <div id="drop-zone" class="drop-zone">
+            <svg class="drop-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+            </svg>
+            <span class="body-md">DRAG & DROP FILE HERE</span>
+            <span class="body-sm secondary-text">OR</span>
+            <button id="select-file-btn" class="btn secondary-btn">BROWSE FILE</button>
+          </div>
+
+          <!-- Selected File Details -->
+          <div id="file-info-card" class="info-card hidden">
+            <div class="card-header">
+              <span class="label-md">FILE INFORMATION</span>
+              <button id="clear-file-btn" class="btn-text label-md">CLEAR</button>
+            </div>
+            <div class="card-body">
+              <div class="info-row">
+                <span class="info-label label-md secondary-text">PATH</span>
+                <span id="info-path" class="info-value body-sm truncate"></span>
+              </div>
+              <div class="info-row">
+                <span class="info-label label-md secondary-text">SIZE</span>
+                <span id="info-size" class="info-value body-sm"></span>
+              </div>
+              <div class="info-row">
+                <span class="info-label label-md secondary-text">FORMAT</span>
+                <span id="info-format" class="info-value body-sm uppercase"></span>
+              </div>
+              <div class="info-row">
+                <span class="info-label label-md secondary-text">DURATION</span>
+                <span id="info-duration" class="info-value body-sm"></span>
+              </div>
+              
+              <!-- Video Stream Info -->
+              <div id="info-video-section" class="stream-section">
+                <div class="separator-line"></div>
+                <div class="info-row">
+                  <span class="info-label label-md secondary-text">VIDEO CODEC</span>
+                  <span id="info-video-codec" class="info-value body-sm uppercase"></span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label label-md secondary-text">RESOLUTION</span>
+                  <span id="info-video-res" class="info-value body-sm"></span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label label-md secondary-text">FRAME RATE</span>
+                  <span id="info-video-fps" class="info-value body-sm"></span>
+                </div>
+              </div>
+
+              <!-- Audio Stream Info -->
+              <div id="info-audio-section" class="stream-section">
+                <div class="separator-line"></div>
+                <div class="info-row">
+                  <span class="info-label label-md secondary-text">AUDIO CODEC</span>
+                  <span id="info-audio-codec" class="info-value body-sm uppercase"></span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label label-md secondary-text">CHANNELS</span>
+                  <span id="info-audio-channels" class="info-value body-sm"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Right Panel: Configurations & Actions -->
+        <section class="grid-panel" id="config-panel">
+          <h2 class="headline-md">PARAMETERS</h2>
+
+          <!-- Configuration Form -->
+          <div class="config-form">
+            <!-- Format Preset -->
+            <div class="form-group">
+              <label for="target-format" class="label-md">OUTPUT FORMAT</label>
+              <select id="target-format" class="form-select">
+                <option value="mp4">MP4 (H.264 + AAC) - Video</option>
+                <option value="mkv">MKV (H.264 + AAC) - Video</option>
+                <option value="webm">WebM (VP9 + Opus) - Web Video</option>
+                <option value="mp3">MP3 (Stereo LAME) - Audio Only</option>
+                <option value="wav">WAV (PCM 16-bit) - Lossless Audio</option>
+              </select>
+            </div>
+
+            <!-- Video Specific Settings -->
+            <div id="video-settings-group">
+              <!-- Resolution Preset -->
+              <div class="form-group">
+                <label for="target-resolution" class="label-md">RESOLUTION SCALE</label>
+                <select id="target-resolution" class="form-select">
+                  <option value="source">Maintain Source Resolution</option>
+                  <option value="1080p">1920 x 1080 (1080p)</option>
+                  <option value="720p">1280 x 720 (720p)</option>
+                  <option value="480p">854 x 480 (480p)</option>
+                </select>
+              </div>
+
+              <!-- Quality Preset -->
+              <div class="form-group">
+                <label for="target-quality" class="label-md">QUALITY PRESET</label>
+                <select id="target-quality" class="form-select">
+                  <option value="high">High Quality (Slower)</option>
+                  <option value="medium" selected>Medium Quality (Recommended)</option>
+                  <option value="low">Low Quality (Fastest)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Trim Configuration -->
+            <div class="form-group">
+              <div class="checkbox-row">
+                <input type="checkbox" id="enable-trim">
+                <label for="enable-trim" class="label-md select-none">TRIM MEDIA CLIP</label>
+              </div>
+              <div id="trim-inputs" class="trim-inputs-row hidden">
+                <div class="trim-field">
+                  <span class="label-sm secondary-text">START TIME</span>
+                  <input type="text" id="trim-start" class="form-input" placeholder="00:00:00">
+                </div>
+                <div class="trim-field">
+                  <span class="label-sm secondary-text">END TIME</span>
+                  <input type="text" id="trim-end" class="form-input" placeholder="00:00:00">
+                </div>
+              </div>
+            </div>
+
+            <!-- Audio Extra Config -->
+            <div class="form-group separator-group">
+              <div class="checkbox-row" id="strip-audio-wrapper">
+                <input type="checkbox" id="strip-audio">
+                <label for="strip-audio" class="label-md select-none">STRIP AUDIO TRACK</label>
+              </div>
+              <div class="checkbox-row hidden" id="extract-audio-wrapper">
+                <input type="checkbox" id="extract-audio">
+                <label for="extract-audio" class="label-md select-none">EXTRACT AUDIO ONLY</label>
+              </div>
+            </div>
+
+            <!-- Destination File Selector -->
+            <div class="form-group">
+              <label class="label-md">SAVE TO</label>
+              <div class="file-picker-row">
+                <input type="text" id="output-path" class="form-input" placeholder="No output directory selected" readonly>
+                <button id="select-output-btn" class="btn secondary-btn">CHOOSE</button>
+              </div>
+            </div>
+
+            <!-- Action Block -->
+            <div class="actions-block">
+              <button id="convert-btn" class="btn primary-btn w-full" disabled>START CONVERSION</button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- Conversion Progress & Log Console Panel -->
+      <footer id="progress-panel" class="progress-panel hidden">
+        <div class="progress-panel-header">
+          <div class="progress-status-container">
+            <span class="status-indicator-blink"></span>
+            <span id="conversion-status" class="label-md">CONVERTING MEDIA FILE...</span>
+          </div>
+          <button id="cancel-btn" class="btn secondary-btn">CANCEL</button>
+        </div>
+
+        <div class="progress-bar-section">
+          <div class="progress-bar-bg">
+            <div id="conversion-progress-bar" class="progress-bar-fill" style="width: 0%"></div>
+          </div>
+          <div class="progress-metrics label-md">
+            <span id="conversion-pct">0%</span>
+            <span class="spacer">|</span>
+            <span class="metric-item">FRAME: <span id="metric-frame">-</span></span>
+            <span class="metric-item">FPS: <span id="metric-fps">-</span></span>
+            <span class="metric-item">SPEED: <span id="metric-speed">-</span></span>
+            <span class="metric-item">BITRATE: <span id="metric-bitrate">-</span></span>
+          </div>
+        </div>
+
+        <!-- Terminal Console -->
+        <div class="terminal-container">
+          <div class="terminal-header">
+            <span class="label-md secondary-text">FFMPEG LOG DIAGNOSTICS</span>
+            <button id="toggle-terminal-btn" class="btn-text label-md">SHOW LOGS</button>
+          </div>
+          <pre id="logs-terminal" class="terminal-body hidden"></pre>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Main JavaScript bundle -->
+  <script src="main.js"></script>
+</body>
+</html>
