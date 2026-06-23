@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simple Convert — Fast Desktop Video Converter</title>
+  <meta name="description" content="Simple Convert is a fast, minimal desktop video converter with hardware-accelerated FFmpeg encoding. Drag-and-drop. Zero bloat. No internet required.">
+  <meta property="og:title" content="Simple Convert — Fast Desktop Video Converter">
+  <meta property="og:description" content="Drag-and-drop video converter with GPU acceleration. Built with Wails + Go. No bloat.">
+  <meta property="og:image" content="../screen shot/Screenshot 2026-06-22 180030.png">
+  <link rel="icon" type="image/png" href="../logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    /* ============================================
+       DESIGN TOKENS
+    ============================================ */
+    :root {
+      --black:   #000000;
+      --near-black: #080808;
+      --surface: #0d0d0d;
+      --raised:  #141414;
+      --border:  #252525;
+      --border-hi: #383838;
+      --muted:   #666666;
+      --sub:     #a1a1a1;
+      --text:    #e5e5e5;
+      --white:   #ffffff;
+      --accent:  #ffffff;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 16px;
+      --transition: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ============================================
+       RESET & BASE
+    ============================================ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background-color: var(--black);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    img { display: block; max-width: 100%; }
+
+    /* ============================================
+       NOISE TEXTURE OVERLAY
+    ============================================ */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+      opacity: 0.025;
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ============================================
+       NAV
+    ============================================ */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 40px;
+      height: 60px;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .nav-logo {
+      width: 20px;
+      height: 20px;
+      object-fit: contain;
+      filter: invert(0);
+    }
+
+    .nav-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--white);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--sub);
+      transition: color var(--transition);
+    }
+
+    .nav-links a:hover { color: var(--white); }
+
+    .nav-cta {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 8px 20px;
+      background: var(--white);
+      color: var(--black);
+      border-radius: var(--radius-sm);
+      transition: background var(--transition), transform var(--transition);
+    }
+
+    .nav-cta:hover {
+      background: var(--text);
+      transform: translateY(-1px);
+      color: var(--black);
+    }
+
+    /* ============================================
+       HERO
+    ============================================ */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 120px 24px 80px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Radial glow behind hero */
+    .hero::after {
+      content: '';
+      position: absolute;
+      top: 20%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 700px;
+      height: 400px;
+      background: radial-gradient(ellipse at center, rgba(255,255,255,0.04) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    /* Grid lines background */
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 60px 60px;
+      opacity: 0.3;
+      mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 30%, transparent 100%);
+      pointer-events: none;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--raised);
+      border: 1px solid var(--border-hi);
+      border-radius: 100px;
+      padding: 6px 16px;
+      margin-bottom: 40px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--sub);
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--white);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 0.3; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1); }
+    }
+
+    .hero-logo {
+      width: 72px;
+      height: 72px;
+      object-fit: contain;
+      margin: 0 auto 32px;
+      position: relative;
+      z-index: 1;
+      animation: logo-spin 12s linear infinite;
+    }
+
+    @keyframes logo-spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+
+    .hero-logo:hover { animation-play-state: paused; }
+
+    .hero-headline {
+      font-size: clamp(52px, 8vw, 96px);
+      font-weight: 900;
+      line-height: 1.0;
+      letter-spacing: -0.04em;
+      color: var(--white);
+      position: relative;
+      z-index: 1;
+      margin-bottom: 12px;
+    }
+
+    .hero-headline span {
+      color: transparent;
+      -webkit-text-stroke: 1px rgba(255,255,255,0.25);
+    }
+
+    .hero-sub {
+      font-size: clamp(16px, 2.5vw, 20px);
+      color: var(--sub);
+      max-width: 520px;
+      margin: 24px auto 48px;
+      line-height: 1.65;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+      position: relative;
+      z-index: 1;
+      margin-bottom: 80px;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--white);
+      color: var(--black);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 14px 32px;
+      border-radius: var(--radius-sm);
+      transition: all var(--transition);
+      box-shadow: 0 0 0 0 rgba(255,255,255,0);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(255,255,255,0.12);
+    }
+
+    .btn-primary svg { flex-shrink: 0; }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: transparent;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 14px 32px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-hi);
+      transition: all var(--transition);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--white);
+      color: var(--white);
+      transform: translateY(-2px);
+    }
+
+    .hero-meta {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      justify-content: center;
+      flex-wrap: wrap;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-meta-item {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .hero-meta-item::before {
+      content: '';
+      width: 16px;
+      height: 1px;
+      background: var(--border-hi);
+    }
+
+    /* ============================================
+       SCREENSHOT
+    ============================================ */
+    .screenshot-section {
+      padding: 0 24px 120px;
+      position: relative;
+    }
+
+    .screenshot-wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      position: relative;
+    }
+
+    .screenshot-glow {
+      position: absolute;
+      inset: -40px;
+      background: radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .screenshot-frame {
+      border: 1px solid var(--border-hi);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow:
+        0 0 0 1px var(--border),
+        0 32px 80px rgba(0,0,0,0.8),
+        0 8px 32px rgba(0,0,0,0.6);
+      position: relative;
+      z-index: 1;
+    }
+
+    .screenshot-titlebar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+    }
+
+    .titlebar-dots {
+      display: flex;
+      gap: 7px;
+    }
+
+    .titlebar-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: var(--border-hi);
+    }
+
+    .titlebar-name {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--sub);
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .titlebar-name img {
+      width: 14px;
+      height: 14px;
+      object-fit: contain;
+    }
+
+    .screenshot-img {
+      width: 100%;
+      display: block;
+    }
+
+    /* ============================================
+       FEATURES
+    ============================================ */
+    .section {
+      padding: 100px 24px;
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .section-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .section-headline {
+      font-size: clamp(32px, 5vw, 52px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--white);
+      line-height: 1.1;
+      margin-bottom: 64px;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .feature-card {
+      background: var(--near-black);
+      padding: 40px 36px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      transition: background var(--transition);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border-hi), transparent);
+      opacity: 0;
+      transition: opacity var(--transition);
+    }
+
+    .feature-card:hover { background: var(--surface); }
+    .feature-card:hover::before { opacity: 1; }
+
+    .feature-icon {
+      width: 40px;
+      height: 40px;
+      background: var(--raised);
+      border: 1px solid var(--border-hi);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--white);
+    }
+
+    .feature-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--white);
+      letter-spacing: -0.01em;
+    }
+
+    .feature-desc {
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--sub);
+    }
+
+    /* ============================================
+       GPU TABLE
+    ============================================ */
+    .gpu-section {
+      padding: 100px 24px;
+      background: var(--near-black);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .gpu-inner {
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+
+    .gpu-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      margin-top: 64px;
+    }
+
+    .gpu-card {
+      background: var(--black);
+      padding: 36px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: relative;
+    }
+
+    .gpu-priority {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      text-transform: uppercase;
+      font-family: var(--font-mono);
+    }
+
+    .gpu-encoder {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--white);
+      background: var(--raised);
+      border: 1px solid var(--border-hi);
+      border-radius: var(--radius-sm);
+      padding: 6px 12px;
+      display: inline-block;
+      letter-spacing: 0;
+    }
+
+    .gpu-vendor {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--sub);
+    }
+
+    .gpu-card:first-child .gpu-badge {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      background: var(--white);
+      color: var(--black);
+      padding: 3px 8px;
+      border-radius: 2px;
+    }
+
+    /* ============================================
+       TECH STACK
+    ============================================ */
+    .stack-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 48px;
+    }
+
+    .pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--raised);
+      border: 1px solid var(--border-hi);
+      border-radius: 100px;
+      padding: 8px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      transition: all var(--transition);
+    }
+
+    .pill:hover {
+      border-color: var(--white);
+      color: var(--white);
+      transform: translateY(-2px);
+    }
+
+    .pill-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--sub);
+      flex-shrink: 0;
+    }
+
+    /* ============================================
+       CTA
+    ============================================ */
+    .cta-section {
+      padding: 140px 24px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cta-section::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 60px 60px;
+      opacity: 0.2;
+      mask-image: radial-gradient(ellipse 70% 80% at 50% 50%, black 20%, transparent 100%);
+    }
+
+    .cta-section::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 500px;
+      height: 300px;
+      background: radial-gradient(ellipse, rgba(255,255,255,0.05) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .cta-headline {
+      font-size: clamp(36px, 6vw, 72px);
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      color: var(--white);
+      line-height: 1.05;
+      position: relative;
+      z-index: 1;
+      margin-bottom: 24px;
+    }
+
+    .cta-sub {
+      font-size: 17px;
+      color: var(--sub);
+      max-width: 440px;
+      margin: 0 auto 48px;
+      line-height: 1.65;
+      position: relative;
+      z-index: 1;
+    }
+
+    .cta-actions {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .cta-note {
+      margin-top: 24px;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ============================================
+       FOOTER
+    ============================================ */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .footer-brand img {
+      width: 18px;
+      height: 18px;
+      object-fit: contain;
+    }
+
+    .footer-brand span {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--sub);
+    }
+
+    .footer-copy {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 24px;
+      list-style: none;
+    }
+
+    .footer-links a {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      transition: color var(--transition);
+    }
+
+    .footer-links a:hover { color: var(--white); }
+
+    /* ============================================
+       SCROLL ANIMATIONS
+    ============================================ */
+    .reveal {
+      opacity: 0;
+      transform: translateY(32px);
+      transition: opacity 0.7s ease, transform 0.7s ease;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ============================================
+       RESPONSIVE
+    ============================================ */
+    @media (max-width: 768px) {
+      nav { padding: 0 20px; }
+      .nav-links { display: none; }
+      footer { flex-direction: column; text-align: center; }
+      .footer-links { justify-content: center; }
+      .gpu-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 480px) {
+      .gpu-grid { grid-template-columns: 1fr; }
+      .hero-actions { flex-direction: column; align-items: stretch; }
+      .btn-primary, .btn-secondary { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="nav-brand">
+      <img src="../logo.png" alt="Simple Convert" class="nav-logo">
+      <span class="nav-title">Simple Convert</span>
+    </div>
+    <ul class="nav-links">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#acceleration">GPU Support</a></li>
+      <li><a href="#tech">Tech Stack</a></li>
+    </ul>
+    <a href="#download" class="nav-cta">Download</a>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-badge">
+      <span class="hero-badge-dot"></span>
+      v1.0.0 &mdash; Windows · Powered by FFmpeg
+    </div>
+
+    <img src="../logo.png" alt="Simple Convert" class="hero-logo">
+
+    <h1 class="hero-headline">
+      Convert.<br><span>Zero Bloat.</span>
+    </h1>
+
+    <p class="hero-sub">
+      A fast, minimal desktop video converter built with Wails + Go.
+      Drag, drop, and let hardware-accelerated FFmpeg do the rest.
+      No internet. No setup. Just convert.
+    </p>
+
+    <div class="hero-actions">
+      <a href="#download" class="btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Download Free
+      </a>
+      <a href="https://github.com" class="btn-secondary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2Z"/></svg>
+        View Source
+      </a>
+    </div>
+
+    <div class="hero-meta">
+      <span class="hero-meta-item">Free &amp; Open Source</span>
+      <span class="hero-meta-item">LGPL License</span>
+      <span class="hero-meta-item">Windows 10/11</span>
+      <span class="hero-meta-item">No Dependencies</span>
+    </div>
+  </section>
+
+  <!-- SCREENSHOT -->
+  <div class="screenshot-section">
+    <div class="screenshot-wrap reveal">
+      <div class="screenshot-glow"></div>
+      <div class="screenshot-frame">
+        <div class="screenshot-titlebar">
+          <div class="titlebar-dots">
+            <div class="titlebar-dot"></div>
+            <div class="titlebar-dot"></div>
+            <div class="titlebar-dot"></div>
+          </div>
+          <div class="titlebar-name">
+            <img src="../logo.png" alt="">
+            Simple Convert
+          </div>
+          <div style="width:55px"></div>
+        </div>
+        <img
+          src="../screen shot/Screenshot 2026-06-22 180030.png"
+          alt="Simple Convert main interface showing drag-and-drop source panel and conversion parameters"
+          class="screenshot-img"
+        >
+      </div>
+    </div>
+  </div>
+
+  <!-- FEATURES -->
+  <section class="section" id="features">
+    <p class="section-label reveal">Core Features</p>
+    <h2 class="section-headline reveal">Built to get out<br>of your way.</h2>
+
+    <div class="features-grid reveal">
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        </div>
+        <div class="feature-title">Drag &amp; Drop</div>
+        <div class="feature-desc">Drop any video file onto the app and get instant file metadata — codec, resolution, frame rate, duration — before you convert a single frame.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        </div>
+        <div class="feature-title">GPU Acceleration</div>
+        <div class="feature-desc">Auto-detects your GPU at startup and selects the fastest available encoder — NVIDIA NVENC, Intel QSV, or AMD AMF — falling back to software only when needed.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+        </div>
+        <div class="feature-title">Multiple Formats</div>
+        <div class="feature-desc">Convert to MP4, MKV, WebM, MP3, or WAV. Choose output resolution, quality preset, or enable direct stream copy to remux without re-encoding.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+        </div>
+        <div class="feature-title">Trim &amp; Clip</div>
+        <div class="feature-desc">Cut your video to a precise time range before converting. Set start and end times to extract exactly the segment you need.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </div>
+        <div class="feature-title">Audio Extraction</div>
+        <div class="feature-desc">Strip the audio track entirely or extract audio only — perfect for pulling sound from video files or creating silent renders.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        </div>
+        <div class="feature-title">Live FFmpeg Logs</div>
+        <div class="feature-desc">A built-in terminal panel streams real-time FFmpeg diagnostics — frame count, FPS, bitrate, and speed — so you always know what's happening.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- GPU ACCELERATION -->
+  <div class="gpu-section" id="acceleration">
+    <div class="gpu-inner">
+      <p class="section-label reveal">Hardware Acceleration</p>
+      <h2 class="section-headline reveal">Your GPU.<br>Your speed.</h2>
+
+      <div class="gpu-grid reveal">
+        <div class="gpu-card">
+          <span class="gpu-badge">Fastest</span>
+          <div class="gpu-priority">Priority 01</div>
+          <code class="gpu-encoder">h264_nvenc</code>
+          <div class="gpu-vendor">NVIDIA</div>
+        </div>
+        <div class="gpu-card">
+          <div class="gpu-priority">Priority 02</div>
+          <code class="gpu-encoder">h264_qsv</code>
+          <div class="gpu-vendor">Intel Quick Sync</div>
+        </div>
+        <div class="gpu-card">
+          <div class="gpu-priority">Priority 03</div>
+          <code class="gpu-encoder">h264_amf</code>
+          <div class="gpu-vendor">AMD AMF</div>
+        </div>
+        <div class="gpu-card">
+          <div class="gpu-priority">Fallback</div>
+          <code class="gpu-encoder">libx264</code>
+          <div class="gpu-vendor">CPU Software</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TECH STACK -->
+  <section class="section" id="tech">
+    <p class="section-label reveal">Tech Stack</p>
+    <h2 class="section-headline reveal">Lean by design.</h2>
+
+    <div class="stack-pills reveal">
+      <div class="pill"><span class="pill-dot"></span>Wails v2</div>
+      <div class="pill"><span class="pill-dot"></span>Go 1.22</div>
+      <div class="pill"><span class="pill-dot"></span>Vanilla JS</div>
+      <div class="pill"><span class="pill-dot"></span>HTML / CSS</div>
+      <div class="pill"><span class="pill-dot"></span>FFmpeg 6.1</div>
+      <div class="pill"><span class="pill-dot"></span>ffprobe</div>
+      <div class="pill"><span class="pill-dot"></span>Embedded Assets</div>
+      <div class="pill"><span class="pill-dot"></span>No Electron</div>
+      <div class="pill"><span class="pill-dot"></span>No Node Runtime</div>
+      <div class="pill"><span class="pill-dot"></span>Zero Dependencies</div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-section" id="download">
+    <h2 class="cta-headline">Ready to convert?</h2>
+    <p class="cta-sub">Download Simple Convert — free, offline, and ready to run. No installer drama.</p>
+    <div class="cta-actions">
+      <a href="#" class="btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Download for Windows
+      </a>
+    </div>
+    <p class="cta-note">Windows 10 &amp; 11 &nbsp;&middot;&nbsp; Free &amp; Open Source &nbsp;&middot;&nbsp; LGPL</p>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-brand">
+      <img src="../logo.png" alt="Simple Convert">
+      <span>Simple Convert</span>
+    </div>
+    <p class="footer-copy">&copy; 2026 Simple Convert. Released under LGPL.</p>
+    <ul class="footer-links">
+      <li><a href="https://wails.io">Wails</a></li>
+      <li><a href="https://ffmpeg.org">FFmpeg</a></li>
+      <li><a href="https://github.com">GitHub</a></li>
+    </ul>
+  </footer>
+
+  <script>
+    // Scroll reveal
+    const reveals = document.querySelectorAll('.reveal');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry, i) => {
+        if (entry.isIntersecting) {
+          setTimeout(() => entry.target.classList.add('visible'), i * 80);
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -60px 0px' });
+
+    reveals.forEach(el => observer.observe(el));
+
+    // Nav scroll effect
+    const nav = document.querySelector('nav');
+    window.addEventListener('scroll', () => {
+      nav.style.borderBottomColor = window.scrollY > 20 ? '#252525' : 'transparent';
+    }, { passive: true });
+  </script>
+</body>
+</html>

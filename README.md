@@ -2,7 +2,7 @@
   <img src="logo.png" alt="Hacdot Convert Logo" width="80" height="80">
 </p>
 
-<h1 align="center">Hacdot Convert</h1>
+<h1 align="center">Simple Convert</h1>
 
 <p align="center">
   A fast, minimal desktop video converter built with <a href="https://wails.io">Wails v2</a> (Go + HTML/CSS/JS).<br>
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="screen shot/Screenshot 2026-06-22 180030.png" alt="Hacdot Convert Screenshot" width="800">
+  <img src="screen shot/Screenshot 2026-06-22 180030.png" alt="Simple Convert Screenshot" width="800">
 </p>
 
 ---
