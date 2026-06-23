@@ -47,7 +47,6 @@ jobs:
         run: |
           wails build `
             -platform windows/amd64 `
-            -windowsgui `
             -trimpath `
             -ldflags "-s -w"
 
