@@ -20,9 +20,9 @@ go.work
 go.work.sum
 
 # ── Bundled / large binaries ─────────────────────────────────────────────────
-# Committed executables in /binaries are intentional; ignore zip archives
 *.zip
 ffprobe-*/
+binaries/
 
 # ── Output / temp video files ────────────────────────────────────────────────
 *_converted.*
