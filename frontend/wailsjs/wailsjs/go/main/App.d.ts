@@ -6,6 +6,8 @@ export function CancelConversion():Promise<void>;
 
 export function CheckFFmpeg():Promise<boolean>;
 
+export function GetAvailableHardwareEncoders():Promise<Record<string, boolean>>;
+
 export function GetMediaInfo(arg1:string):Promise<main.MediaInfo>;
 
 export function SelectInputFile():Promise<string>;

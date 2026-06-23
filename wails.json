@@ -1,8 +1,8 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "hacdot-convert",
+  "name": "simple-convert",
   "version": "2.0.0",
-  "outputfilename": "hacdot-convert",
+  "outputfilename": "simple-convert",
   "frontend:dir": "frontend",
   "frontend:install": "",
   "frontend:build": "",

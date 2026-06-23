@@ -1,4 +1,4 @@
-module hacdot-convert
+module simple-convert
 
 go 1.22.0
 

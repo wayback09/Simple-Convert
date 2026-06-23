@@ -1,0 +1,65 @@
+# ── Wails ────────────────────────────────────────────────────────────────────
+build/bin/
+frontend/wailsjs/
+
+# ── Go ───────────────────────────────────────────────────────────────────────
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary & coverage
+*.test
+*.out
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# ── Bundled / large binaries ─────────────────────────────────────────────────
+# Committed executables in /binaries are intentional; ignore zip archives
+*.zip
+ffprobe-*/
+
+# ── Output / temp video files ────────────────────────────────────────────────
+*_converted.*
+*.mkv
+*.mp4
+*.mov
+*.avi
+*.webm
+
+# Probe / debug logs
+*_probe_error.txt
+NUL
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+
+# ── Editors ──────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# ── Env / secrets ────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example

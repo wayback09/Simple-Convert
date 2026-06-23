@@ -30,6 +30,8 @@ type App struct {
 	activeCmd    *exec.Cmd
 	mu           sync.Mutex
 	wasCancelled atomic.Bool
+	hwEncodersMu sync.Mutex
+	hwEncoders   map[string]bool
 }
 
 // NewApp creates a new App struct instance
@@ -112,6 +114,8 @@ type ConversionParams struct {
 	TrimEnd         string `json:"trimEnd"`
 	StripAudio      bool   `json:"stripAudio"`
 	ExtractAudio    bool   `json:"extractAudio"`
+	HwAccel         string `json:"hwAccel"`
+	NoReencode      bool   `json:"noReencode"`
 }
 
 // ProgressData represents progress metrics sent to the UI
@@ -168,7 +172,7 @@ func (a *App) CheckFFmpeg() (bool, error) {
 		return false, err
 	}
 
-	localBinDir := filepath.Join(appDataDir, "hacdot-convert", "bin")
+	localBinDir := filepath.Join(appDataDir, "simple-convert", "bin")
 	localFFmpeg := filepath.Join(localBinDir, "ffmpeg.exe")
 	localFFprobe := filepath.Join(localBinDir, "ffprobe.exe")
 
@@ -200,7 +204,7 @@ func (a *App) SetupFFmpeg() error {
 		return err
 	}
 
-	localBinDir := filepath.Join(appDataDir, "hacdot-convert", "bin")
+	localBinDir := filepath.Join(appDataDir, "simple-convert", "bin")
 	err = os.MkdirAll(localBinDir, 0755)
 	if err != nil {
 		return err
@@ -437,6 +441,59 @@ func (a *App) GetMediaInfo(path string) (*MediaInfo, error) {
 	return info, nil
 }
 
+// supportsEncoder checks if a specific encoder is supported by the host system
+func (a *App) supportsEncoder(encoder string) bool {
+	if a.ffmpegPath == "" {
+		if ok, _ := a.CheckFFmpeg(); !ok {
+			return false
+		}
+	}
+	cmd := exec.Command(a.ffmpegPath, "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.04", "-c:v", encoder, "-f", "null", "-")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	return cmd.Run() == nil
+}
+
+// GetAvailableHardwareEncoders queries FFmpeg to determine which hardware encoders actually work on the system.
+// It caches the result after the first check.
+func (a *App) GetAvailableHardwareEncoders() map[string]bool {
+	a.hwEncodersMu.Lock()
+	defer a.hwEncodersMu.Unlock()
+
+	if a.hwEncoders != nil {
+		return a.hwEncoders
+	}
+
+	a.hwEncoders = map[string]bool{
+		"nvenc": false,
+		"amf":   false,
+		"qsv":   false,
+	}
+
+	if a.ffmpegPath == "" {
+		if ok, _ := a.CheckFFmpeg(); !ok {
+			return a.hwEncoders
+		}
+	}
+
+	probe := func(encoder string) bool {
+		cmd := exec.Command(a.ffmpegPath, "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.04", "-c:v", encoder, "-f", "null", "-")
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		return cmd.Run() == nil
+	}
+
+	if probe("h264_nvenc") {
+		a.hwEncoders["nvenc"] = true
+	}
+	if probe("h264_amf") {
+		a.hwEncoders["amf"] = true
+	}
+	if probe("h264_qsv") {
+		a.hwEncoders["qsv"] = true
+	}
+
+	return a.hwEncoders
+}
+
 // StartConversion executes FFmpeg with selected parameters and parses progress updates
 func (a *App) StartConversion(params ConversionParams) error {
 	a.wasCancelled.Store(false)
@@ -461,6 +518,11 @@ func (a *App) StartConversion(params ConversionParams) error {
 	// Overwrite existing files
 	args = append(args, "-y")
 
+	// Hardware decoding (must go before -i)
+	if !params.NoReencode && params.HwAccel != "none" && params.HwAccel != "" {
+		args = append(args, "-hwaccel", "auto")
+	}
+
 	// Set inputs
 	args = append(args, "-i", params.InputPath)
 
@@ -476,74 +538,180 @@ func (a *App) StartConversion(params ConversionParams) error {
 
 	isAudioOnlyOutput := params.TargetFormat == "mp3" || params.TargetFormat == "wav"
 
-	if params.ExtractAudio || isAudioOnlyOutput {
-		// Strip video entirely
-		args = append(args, "-vn")
-
-		if params.TargetFormat == "mp3" {
-			args = append(args, "-c:a", "libmp3lame")
-			switch params.QualityPreset {
-			case "high":
-				args = append(args, "-b:a", "320k")
-			case "low":
-				args = append(args, "-b:a", "128k")
-			default:
-				args = append(args, "-b:a", "192k")
-			}
-		} else if params.TargetFormat == "wav" {
-			args = append(args, "-c:a", "pcm_s16le")
+	if params.NoReencode {
+		if params.ExtractAudio || isAudioOnlyOutput {
+			args = append(args, "-vn", "-c:a", "copy")
 		} else {
-			// default to standard copying or converting audio for WebM / MP4 extraction
-			args = append(args, "-c:a", "aac", "-b:a", "192k")
+			if params.StripAudio {
+				args = append(args, "-an")
+			} else {
+				args = append(args, "-c:a", "copy")
+			}
+			args = append(args, "-c:v", "copy")
 		}
 	} else {
-		// Video conversion options
-		if params.TargetFormat == "webm" {
-			args = append(args, "-c:v", "libvpx-vp9")
-			if params.StripAudio {
-				args = append(args, "-an")
-			} else {
-				args = append(args, "-c:a", "libopus", "-b:a", "128k")
-			}
+		// Re-encoding logic
+		selectedEncoder := ""
+		selectedHw := ""
 
-			// Preset / Speed parameters for VP9
-			switch params.QualityPreset {
-			case "high":
-				args = append(args, "-crf", "20", "-b:v", "0", "-deadline", "good", "-cpu-used", "2")
-			case "low":
-				args = append(args, "-crf", "40", "-b:v", "0", "-deadline", "realtime", "-cpu-used", "5")
-			default: // medium
-				args = append(args, "-crf", "30", "-b:v", "0", "-deadline", "good", "-cpu-used", "3")
-			}
-		} else {
-			// Default to H.264 (MP4 / MKV)
-			args = append(args, "-c:v", "libx264")
-			if params.StripAudio {
-				args = append(args, "-an")
+		if params.HwAccel != "none" && params.HwAccel != "" {
+			available := a.GetAvailableHardwareEncoders()
+			if params.HwAccel == "auto" {
+				if available["nvenc"] {
+					selectedHw = "nvenc"
+				} else if available["amf"] {
+					selectedHw = "amf"
+				} else if available["qsv"] {
+					selectedHw = "qsv"
+				}
 			} else {
-				args = append(args, "-c:a", "aac", "-b:a", "192k")
-			}
-
-			// Quality presets for x264
-			switch params.QualityPreset {
-			case "high":
-				args = append(args, "-crf", "18", "-preset", "slow")
-			case "low":
-				args = append(args, "-crf", "28", "-preset", "fast")
-			default: // medium
-				args = append(args, "-crf", "23", "-preset", "medium")
+				if available[params.HwAccel] {
+					selectedHw = params.HwAccel
+				}
 			}
 		}
 
-		// Resolution scaling
-		if params.ResolutionScale != "source" {
-			switch params.ResolutionScale {
-			case "1080p":
-				args = append(args, "-vf", "scale=-2:1080")
-			case "720p":
-				args = append(args, "-vf", "scale=-2:720")
-			case "480p":
-				args = append(args, "-vf", "scale=-2:480")
+		if params.ExtractAudio || isAudioOnlyOutput {
+			// Strip video entirely
+			args = append(args, "-vn")
+
+			if params.TargetFormat == "mp3" {
+				args = append(args, "-c:a", "libmp3lame")
+				switch params.QualityPreset {
+				case "high":
+					args = append(args, "-b:a", "320k")
+				case "low":
+					args = append(args, "-b:a", "128k")
+				default:
+					args = append(args, "-b:a", "192k")
+				}
+			} else if params.TargetFormat == "wav" {
+				args = append(args, "-c:a", "pcm_s16le")
+			} else {
+				// default to standard copying or converting audio for WebM / MP4 extraction
+				args = append(args, "-c:a", "aac", "-b:a", "192k")
+			}
+		} else {
+			// Video conversion options
+			if params.TargetFormat == "webm" {
+				// Check for VP9 hardware encoder
+				if selectedHw == "nvenc" && a.supportsEncoder("vp9_nvenc") {
+					selectedEncoder = "vp9_nvenc"
+				} else if selectedHw == "qsv" && a.supportsEncoder("vp9_qsv") {
+					selectedEncoder = "vp9_qsv"
+				} else {
+					selectedEncoder = "libvpx-vp9"
+				}
+
+				args = append(args, "-c:v", selectedEncoder)
+
+				if params.StripAudio {
+					args = append(args, "-an")
+				} else {
+					args = append(args, "-c:a", "libopus", "-b:a", "128k")
+				}
+
+				// Quality parameters
+				if selectedEncoder == "vp9_nvenc" {
+					switch params.QualityPreset {
+					case "high":
+						args = append(args, "-rc", "vbr", "-cq", "20", "-preset", "slow")
+					case "low":
+						args = append(args, "-rc", "vbr", "-cq", "30", "-preset", "fast")
+					default:
+						args = append(args, "-rc", "vbr", "-cq", "25", "-preset", "medium")
+					}
+				} else if selectedEncoder == "vp9_qsv" {
+					switch params.QualityPreset {
+					case "high":
+						args = append(args, "-global_quality", "20", "-preset", "slow")
+					case "low":
+						args = append(args, "-global_quality", "30", "-preset", "fast")
+					default:
+						args = append(args, "-global_quality", "25", "-preset", "medium")
+					}
+				} else {
+					// software VP9
+					switch params.QualityPreset {
+					case "high":
+						args = append(args, "-crf", "20", "-b:v", "0", "-deadline", "good", "-cpu-used", "2")
+					case "low":
+						args = append(args, "-crf", "40", "-b:v", "0", "-deadline", "realtime", "-cpu-used", "5")
+					default: // medium
+						args = append(args, "-crf", "30", "-b:v", "0", "-deadline", "good", "-cpu-used", "3")
+					}
+				}
+			} else {
+				// Default to H.264 (MP4 / MKV)
+				if selectedHw == "nvenc" {
+					selectedEncoder = "h264_nvenc"
+				} else if selectedHw == "amf" {
+					selectedEncoder = "h264_amf"
+				} else if selectedHw == "qsv" {
+					selectedEncoder = "h264_qsv"
+				} else {
+					selectedEncoder = "libx264"
+				}
+
+				args = append(args, "-c:v", selectedEncoder)
+
+				if params.StripAudio {
+					args = append(args, "-an")
+				} else {
+					args = append(args, "-c:a", "aac", "-b:a", "192k")
+				}
+
+				// Quality parameters
+				if selectedEncoder == "h264_nvenc" {
+					switch params.QualityPreset {
+					case "high":
+						args = append(args, "-rc", "vbr", "-cq", "18", "-preset", "slow")
+					case "low":
+						args = append(args, "-rc", "vbr", "-cq", "28", "-preset", "fast")
+					default:
+						args = append(args, "-rc", "vbr", "-cq", "23", "-preset", "medium")
+					}
+				} else if selectedEncoder == "h264_amf" {
+					switch params.QualityPreset {
+					case "high":
+						args = append(args, "-qp_i", "18", "-qp_p", "18", "-quality", "quality")
+					case "low":
+						args = append(args, "-qp_i", "28", "-qp_p", "28", "-quality", "speed")
+					default:
+						args = append(args, "-qp_i", "23", "-qp_p", "23", "-quality", "balanced")
+					}
+				} else if selectedEncoder == "h264_qsv" {
+					switch params.QualityPreset {
+					case "high":
+						args = append(args, "-global_quality", "18", "-preset", "slow")
+					case "low":
+						args = append(args, "-global_quality", "28", "-preset", "fast")
+					default:
+						args = append(args, "-global_quality", "23", "-preset", "medium")
+					}
+				} else {
+					// software H.264
+					switch params.QualityPreset {
+					case "high":
+						args = append(args, "-crf", "18", "-preset", "slow")
+					case "low":
+						args = append(args, "-crf", "28", "-preset", "fast")
+					default: // medium
+						args = append(args, "-crf", "23", "-preset", "medium")
+					}
+				}
+			}
+
+			// Resolution scaling
+			if params.ResolutionScale != "source" {
+				switch params.ResolutionScale {
+				case "1080p":
+					args = append(args, "-vf", "scale=-2:1080")
+				case "720p":
+					args = append(args, "-vf", "scale=-2:720")
+				case "480p":
+					args = append(args, "-vf", "scale=-2:480")
+				}
 			}
 		}
 	}

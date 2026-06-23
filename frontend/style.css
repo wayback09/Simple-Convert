@@ -119,6 +119,12 @@ body {
   z-index: 10;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .brand-title {
   color: var(--color-text-primary);
   font-weight: 700;
@@ -637,14 +643,77 @@ body {
   object-fit: contain;
 }
 
-.header-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
 .app-logo-small {
   width: 20px;
   height: 20px;
   object-fit: contain;
 }
+
+/* ------------------------------------------
+   CUSTOM WINDOW TITLEBAR (FRAMELESS)
+   ------------------------------------------ */
+.window-titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: var(--color-container);
+  height: 38px;
+  padding: 0 16px;
+  user-select: none;
+  --wails-draggable: drag;
+  flex-shrink: 0;
+  z-index: 100;
+}
+
+.titlebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.titlebar-logo {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.titlebar-title {
+  color: var(--color-text-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.window-controls {
+  display: flex;
+  height: 100%;
+  --wails-draggable: no-drag;
+}
+
+.win-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  width: 46px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.win-btn:hover {
+  background-color: var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.win-btn-close:hover {
+  background-color: #E81123 !important;
+  color: var(--color-text-primary) !important;
+}
+
+.win-btn svg {
+  display: block;
+}
+

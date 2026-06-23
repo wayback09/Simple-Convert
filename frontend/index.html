@@ -3,20 +3,38 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hacdot Convert</title>
+  <title>Simple Convert</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <!-- Container for the entire application -->
   <div class="app-container">
+    <!-- Custom Titlebar for Frameless Window -->
+    <div class="window-titlebar">
+      <div class="titlebar-brand">
+        <img src="logo.png" alt="Logo" class="titlebar-logo">
+        <span class="titlebar-title">SIMPLE CONVERT</span>
+      </div>
+      <div class="window-controls">
+        <button id="win-min-btn" class="win-btn" aria-label="Minimize">
+          <svg width="10" height="10" viewBox="0 0 12 12"><rect y="5" width="12" height="2" fill="currentColor"/></svg>
+        </button>
+        <button id="win-max-btn" class="win-btn" aria-label="Maximize">
+          <svg width="10" height="10" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
+        <button id="win-close-btn" class="win-btn win-btn-close" aria-label="Close">
+          <svg width="10" height="10" viewBox="0 0 12 12"><path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+        </button>
+      </div>
+    </div>
     
     <!-- 1. Setup Screen (FFmpeg Downloader) -->
     <div id="setup-screen" class="screen active">
       <div class="setup-card">
         <div class="logo-container">
-          <img src="logo.png" alt="Hacdot Convert Logo" class="app-logo-large">
+          <img src="logo.png" alt="Simple Convert Logo" class="app-logo-large">
         </div>
-        <h1 class="headline-lg">HACDOT_CONVERT</h1>
+        <h1 class="headline-lg">SIMPLE_CONVERT</h1>
         <p class="body-md secondary-text">
           Offline desktop media converter. To begin, we need to download and install the FFmpeg binaries (approx. 130MB). This is a one-time setup. No internet will be required afterwards.
         </p>
@@ -50,9 +68,8 @@
     <div id="app-screen" class="screen hidden">
       <!-- Main Header -->
       <header class="app-header">
-        <div class="header-brand">
-          <img src="logo.png" alt="Logo" class="app-logo-small">
-          <span class="brand-title">HACDOT CONVERT</span>
+        <div class="header-left">
+          <span class="label-md secondary-text">POWERED BY FFmpeg</span>
         </div>
         <div class="header-actions">
           <span class="label-md secondary-text">v1.0.0</span>
@@ -148,6 +165,26 @@
                 <option value="webm">WebM (VP9 + Opus) - Web Video</option>
                 <option value="mp3">MP3 (Stereo LAME) - Audio Only</option>
                 <option value="wav">WAV (PCM 16-bit) - Lossless Audio</option>
+              </select>
+            </div>
+
+            <!-- Direct Stream Copy Option -->
+            <div class="form-group">
+              <div class="checkbox-row" id="no-reencode-wrapper">
+                <input type="checkbox" id="no-reencode">
+                <label for="no-reencode" class="label-md select-none">DIRECT STREAM COPY (NO RE-ENCODING)</label>
+              </div>
+            </div>
+
+            <!-- Hardware Acceleration -->
+            <div class="form-group" id="hw-accel-group">
+              <label for="hw-accel" class="label-md">HARDWARE ACCELERATION</label>
+              <select id="hw-accel" class="form-select">
+                <option value="none">None (Software CPU)</option>
+                <option value="auto" selected>Auto-Detect GPU</option>
+                <option value="nvenc" id="opt-nvenc">NVIDIA NVENC (Checking...)</option>
+                <option value="amf" id="opt-amf">AMD AMF (Checking...)</option>
+                <option value="qsv" id="opt-qsv">Intel QSV (Checking...)</option>
               </select>
             </div>
 

@@ -10,6 +10,10 @@ export function CheckFFmpeg() {
   return window['go']['main']['App']['CheckFFmpeg']();
 }
 
+export function GetAvailableHardwareEncoders() {
+  return window['go']['main']['App']['GetAvailableHardwareEncoders']();
+}
+
 export function GetMediaInfo(arg1) {
   return window['go']['main']['App']['GetMediaInfo'](arg1);
 }

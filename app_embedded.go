@@ -20,7 +20,7 @@ func (a *App) extractEmbeddedBinaries() (bool, error) {
 		return false, err
 	}
 
-	localBinDir := filepath.Join(appDataDir, "hacdot-convert", "bin")
+	localBinDir := filepath.Join(appDataDir, "simple-convert", "bin")
 	err = os.MkdirAll(localBinDir, 0755)
 	if err != nil {
 		return false, err

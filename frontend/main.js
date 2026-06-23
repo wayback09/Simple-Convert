@@ -21,6 +21,33 @@ function formatDuration(sec) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Window control elements and actions
+    const winMinBtn = document.getElementById('win-min-btn');
+    const winMaxBtn = document.getElementById('win-max-btn');
+    const winCloseBtn = document.getElementById('win-close-btn');
+
+    if (winMinBtn) {
+        winMinBtn.addEventListener('click', () => {
+            if (window.runtime && window.runtime.WindowMinimise) {
+                window.runtime.WindowMinimise();
+            }
+        });
+    }
+    if (winMaxBtn) {
+        winMaxBtn.addEventListener('click', () => {
+            if (window.runtime && window.runtime.WindowToggleMaximise) {
+                window.runtime.WindowToggleMaximise();
+            }
+        });
+    }
+    if (winCloseBtn) {
+        winCloseBtn.addEventListener('click', () => {
+            if (window.runtime && window.runtime.Quit) {
+                window.runtime.Quit();
+            }
+        });
+    }
+
     // State management
     let selectedInputPath = '';
     let selectedOutputPath = '';
@@ -77,6 +104,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectOutputBtn = document.getElementById('select-output-btn');
     const convertBtn = document.getElementById('convert-btn');
 
+    const noReencode = document.getElementById('no-reencode');
+    const noReencodeWrapper = document.getElementById('no-reencode-wrapper');
+    const hwAccel = document.getElementById('hw-accel');
+    const hwAccelGroup = document.getElementById('hw-accel-group');
+    const optNvenc = document.getElementById('opt-nvenc');
+    const optAmf = document.getElementById('opt-amf');
+    const optQsv = document.getElementById('opt-qsv');
+
     // DOM Elements - Conversion Progress Panel
     const progressPanel = document.getElementById('progress-panel');
     const conversionStatus = document.getElementById('conversion-status');
@@ -100,6 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (hasFFmpeg) {
                 setupScreen.classList.add('hidden');
                 appScreen.classList.remove('hidden');
+                initHardwareEncoders();
             } else {
                 setupScreen.classList.remove('hidden');
                 appScreen.classList.add('hidden');
@@ -109,6 +145,53 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (err) {
             showSetupError("Failed to check for FFmpeg: " + err);
+        }
+    }
+
+    async function initHardwareEncoders() {
+        try {
+            const encoders = await window.go.main.App.GetAvailableHardwareEncoders();
+            
+            if (encoders.nvenc) {
+                optNvenc.textContent = "NVIDIA NVENC (Supported)";
+                optNvenc.removeAttribute('disabled');
+            } else {
+                optNvenc.textContent = "NVIDIA NVENC (Unsupported)";
+                optNvenc.setAttribute('disabled', 'true');
+            }
+
+            if (encoders.amf) {
+                optAmf.textContent = "AMD AMF (Supported)";
+                optAmf.removeAttribute('disabled');
+            } else {
+                optAmf.textContent = "AMD AMF (Unsupported)";
+                optAmf.setAttribute('disabled', 'true');
+            }
+
+            if (encoders.qsv) {
+                optQsv.textContent = "Intel QSV (Supported)";
+                optQsv.removeAttribute('disabled');
+            } else {
+                optQsv.textContent = "Intel QSV (Unsupported)";
+                optQsv.setAttribute('disabled', 'true');
+            }
+
+            const hasAnyHw = encoders.nvenc || encoders.amf || encoders.qsv;
+            const autoOpt = hwAccel.querySelector('option[value="auto"]');
+            if (!hasAnyHw) {
+                hwAccel.value = "none";
+                if (autoOpt) {
+                    autoOpt.textContent = "Auto-Detect GPU (No GPU detected)";
+                    autoOpt.setAttribute('disabled', 'true');
+                }
+            } else {
+                if (autoOpt) {
+                    autoOpt.textContent = "Auto-Detect GPU";
+                    autoOpt.removeAttribute('disabled');
+                }
+            }
+        } catch (err) {
+            console.error("Failed to query hardware encoders", err);
         }
     }
 
@@ -179,7 +262,21 @@ document.addEventListener('DOMContentLoaded', () => {
     // FILE INPUT HANDLING (DRAG/DROP & BROWSE)
     // ==========================================
 
-    // Drag and Drop
+    // Drag and Drop (using Wails native API - HTML5 drop.path is unavailable in Wails webview)
+    // useDropTarget=false so drops are accepted anywhere on the window, not just on
+    // elements marked with the --wails-drop-target CSS property.
+    window.runtime.OnFileDrop((x, y, paths) => {
+        if (paths && paths.length > 0) {
+            const filePath = paths[0];
+            if (filePath) {
+                dropZone.classList.remove('dragover');
+                handleFileSelected(filePath);
+            }
+        }
+    }, false);
+
+    // Visual feedback only (dragover/dragleave events DO fire in the webview;
+    // only the File.path property is unavailable, which is why we use OnFileDrop above)
     dropZone.addEventListener('dragover', (e) => {
         e.preventDefault();
         dropZone.classList.add('dragover');
@@ -187,17 +284,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     dropZone.addEventListener('dragleave', () => {
         dropZone.classList.remove('dragover');
-    });
-
-    dropZone.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('dragover');
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            const filePath = e.dataTransfer.files[0].path;
-            if (filePath) {
-                handleFileSelected(filePath);
-            }
-        }
     });
 
     // Browse Button
@@ -230,13 +316,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 infoVideoCodec.textContent = info.videoCodec;
                 infoVideoRes.textContent = info.resolution;
                 infoVideoFps.textContent = info.frameRate;
-
-                videoSettingsGroup.classList.remove('hidden');
-                stripAudioWrapper.classList.remove('hidden');
             } else {
                 infoVideoSection.classList.add('hidden');
-                videoSettingsGroup.classList.add('hidden');
-                stripAudioWrapper.classList.add('hidden');
             }
 
             // Populate Audio Stream info
@@ -244,24 +325,75 @@ document.addEventListener('DOMContentLoaded', () => {
                 infoAudioSection.classList.remove('hidden');
                 infoAudioCodec.textContent = info.audioCodec;
                 infoAudioChannels.textContent = info.audioChannels + ' ch';
-
-                extractAudioWrapper.classList.remove('hidden');
             } else {
                 infoAudioSection.classList.add('hidden');
-                extractAudioWrapper.classList.add('hidden');
             }
-
-            // Suggest proposed output file
-            suggestOutputFile();
 
             // Toggle card visibility
             dropZone.classList.add('hidden');
             fileInfoCard.classList.remove('hidden');
 
-            validateForm();
+            updateFormStates();
         } catch (err) {
             alert("Error parsing file metadata: " + err);
         }
+    }
+
+    function updateFormStates() {
+        if (!selectedInputPath) return;
+
+        const format = targetFormat.value;
+        const isAudioOnly = (format === 'mp3' || format === 'wav');
+
+        // Direct Stream Copy option visibility/disabled
+        if (isAudioOnly) {
+            noReencode.checked = false;
+            noReencodeWrapper.classList.add('hidden');
+        } else {
+            noReencodeWrapper.classList.remove('hidden');
+        }
+
+        if (noReencode.checked) {
+            // Disable re-encoding settings
+            videoSettingsGroup.classList.add('hidden');
+            hwAccelGroup.classList.add('hidden');
+
+            if (inputMediaInfo && inputMediaInfo.hasVideo) {
+                stripAudioWrapper.classList.remove('hidden');
+            } else {
+                stripAudioWrapper.classList.add('hidden');
+            }
+            if (inputMediaInfo && inputMediaInfo.hasAudio) {
+                extractAudioWrapper.classList.remove('hidden');
+            } else {
+                extractAudioWrapper.classList.add('hidden');
+            }
+        } else {
+            // Re-encoding active
+            if (isAudioOnly) {
+                videoSettingsGroup.classList.add('hidden');
+                stripAudioWrapper.classList.add('hidden');
+                extractAudioWrapper.classList.add('hidden');
+                hwAccelGroup.classList.add('hidden');
+            } else {
+                hwAccelGroup.classList.remove('hidden');
+                if (inputMediaInfo && inputMediaInfo.hasVideo) {
+                    videoSettingsGroup.classList.remove('hidden');
+                    stripAudioWrapper.classList.remove('hidden');
+                } else {
+                    videoSettingsGroup.classList.add('hidden');
+                    stripAudioWrapper.classList.add('hidden');
+                }
+                if (inputMediaInfo && inputMediaInfo.hasAudio) {
+                    extractAudioWrapper.classList.remove('hidden');
+                } else {
+                    extractAudioWrapper.classList.add('hidden');
+                }
+            }
+        }
+
+        suggestOutputFile();
+        validateForm();
     }
 
     // Clear Selected File
@@ -270,39 +402,20 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedOutputPath = '';
         inputMediaInfo = null;
         outputPathInput.value = '';
+        noReencode.checked = false;
 
         fileInfoCard.classList.add('hidden');
         dropZone.classList.remove('hidden');
 
-        validateForm();
+        updateFormStates();
     });
 
     // ==========================================
     // PARAMETERS & OUTPUT CONFIGURATION
     // ==========================================
 
-    targetFormat.addEventListener('change', () => {
-        // Toggle video options depending on target format
-        const format = targetFormat.value;
-        const isAudioOnly = (format === 'mp3' || format === 'wav');
-
-        if (isAudioOnly) {
-            videoSettingsGroup.classList.add('hidden');
-            stripAudioWrapper.classList.add('hidden');
-            extractAudioWrapper.classList.add('hidden');
-        } else {
-            if (inputMediaInfo && inputMediaInfo.hasVideo) {
-                videoSettingsGroup.classList.remove('hidden');
-                stripAudioWrapper.classList.remove('hidden');
-            }
-            if (inputMediaInfo && inputMediaInfo.hasAudio) {
-                extractAudioWrapper.classList.remove('hidden');
-            }
-        }
-
-        suggestOutputFile();
-        validateForm();
-    });
+    targetFormat.addEventListener('change', updateFormStates);
+    noReencode.addEventListener('change', updateFormStates);
 
     enableTrim.addEventListener('change', () => {
         if (enableTrim.checked) {
@@ -407,7 +520,9 @@ document.addEventListener('DOMContentLoaded', () => {
             trimStart: trimStart.value.trim(),
             trimEnd: trimEnd.value.trim(),
             stripAudio: stripAudio.checked,
-            extractAudio: extractAudio.checked
+            extractAudio: extractAudio.checked,
+            hwAccel: hwAccel.value,
+            noReencode: noReencode.checked
         };
 
         try {
@@ -454,13 +569,15 @@ document.addEventListener('DOMContentLoaded', () => {
             targetFormat, targetResolution, targetQuality,
             enableTrim, trimStart, trimEnd, stripAudio,
             extractAudio, selectOutputBtn, clearFileBtn,
-            selectFileBtn, convertBtn
+            selectFileBtn, convertBtn, noReencode, hwAccel
         ];
         elements.forEach(el => {
-            if (disabled) {
-                el.setAttribute('disabled', 'true');
-            } else {
-                el.removeAttribute('disabled');
+            if (el) {
+                if (disabled) {
+                    el.setAttribute('disabled', 'true');
+                } else {
+                    el.removeAttribute('disabled');
+                }
             }
         });
         validateForm(); // correct convertBtn state based on validation

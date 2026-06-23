@@ -11,6 +11,8 @@ export namespace main {
 	    trimEnd: string;
 	    stripAudio: boolean;
 	    extractAudio: boolean;
+	    hwAccel: string;
+	    noReencode: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConversionParams(source);
@@ -28,6 +30,8 @@ export namespace main {
 	        this.trimEnd = source["trimEnd"];
 	        this.stripAudio = source["stripAudio"];
 	        this.extractAudio = source["extractAudio"];
+	        this.hwAccel = source["hwAccel"];
+	        this.noReencode = source["noReencode"];
 	    }
 	}
 	export class MediaInfo {
