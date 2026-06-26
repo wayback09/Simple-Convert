@@ -5,8 +5,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"net/http"
 	"os"
@@ -20,6 +24,10 @@ import (
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/renderer/html"
+	"golang.org/x/image/webp"
 )
 
 // App struct
@@ -823,4 +831,350 @@ func (a *App) CancelConversion() error {
 		return err
 	}
 	return nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION: Universal Conversion Router
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ConversionResult is returned by HandleConversion to the frontend.
+type ConversionResult struct {
+	OutputPath string `json:"outputPath"`
+	Category   string `json:"category"` // "media", "image", "data", "document"
+}
+
+// HandleConversion is the single Wails-exposed entry point for all file types.
+// It inspects the source extension and routes to the correct handler.
+func (a *App) HandleConversion(inputPath, targetExt string) (*ConversionResult, error) {
+	targetExt = strings.ToLower(strings.TrimPrefix(targetExt, "."))
+	srcExt    := strings.ToLower(strings.TrimPrefix(filepath.Ext(inputPath), "."))
+
+	// Derive a sensible output path: same directory, same stem, new extension.
+	stem      := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
+	outputDir := filepath.Dir(inputPath)
+	outputPath := filepath.Join(outputDir, stem+"_converted."+targetExt)
+
+	switch srcExt {
+	// ── Video ──────────────────────────────────────────────────────────────
+	case "mp4", "mkv", "avi", "mov", "webm":
+		return a.routeToFFmpeg(inputPath, outputPath, targetExt, "media")
+
+	// ── Audio ──────────────────────────────────────────────────────────────
+	case "mp3", "wav", "m4a", "flac", "ogg", "aac":
+		return a.routeToFFmpeg(inputPath, outputPath, targetExt, "media")
+
+	// ── Image ──────────────────────────────────────────────────────────────
+	case "png", "jpg", "jpeg", "webp":
+		out, err := convertImageNative(inputPath, outputPath, targetExt)
+		if err != nil {
+			return nil, err
+		}
+		return &ConversionResult{OutputPath: out, Category: "image"}, nil
+
+	// ── Data ───────────────────────────────────────────────────────────────
+	case "csv", "json":
+		out, err := convertDataNative(inputPath, outputPath, srcExt, targetExt)
+		if err != nil {
+			return nil, err
+		}
+		return &ConversionResult{OutputPath: out, Category: "data"}, nil
+
+	// ── Document ───────────────────────────────────────────────────────────
+	case "md", "markdown":
+		out, err := convertMarkdownNative(inputPath, outputPath)
+		if err != nil {
+			return nil, err
+		}
+		return &ConversionResult{OutputPath: out, Category: "document"}, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported source format: .%s", srcExt)
+	}
+}
+
+// routeToFFmpeg wraps the existing FFmpeg pipeline for media files.
+// It builds a minimal ConversionParams and calls StartConversion.
+func (a *App) routeToFFmpeg(inputPath, outputPath, targetExt, category string) (*ConversionResult, error) {
+	params := ConversionParams{
+		InputPath:       inputPath,
+		OutputPath:      outputPath,
+		TargetFormat:    targetExt,
+		ResolutionScale: "source",
+		QualityPreset:   "medium",
+		HwAccel:         "auto",
+	}
+	if err := a.StartConversion(params); err != nil {
+		return nil, fmt.Errorf("media conversion failed: %w", err)
+	}
+	return &ConversionResult{OutputPath: outputPath, Category: category}, nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION: Native Image Converter
+// Supports: PNG ↔ JPEG, PNG/JPEG → WEBP (decode only; encodes as PNG fallback)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// convertImageNative decodes the source image with stdlib decoders and
+// re-encodes it into the target format. Supports PNG, JPEG, and WEBP (decode).
+func convertImageNative(inputPath, outputPath, targetExt string) (string, error) {
+	// ── Open source ──────────────────────────────────────────────────────────
+	srcFile, err := os.Open(inputPath)
+	if err != nil {
+		return "", fmt.Errorf("image: cannot open source file: %w", err)
+	}
+	defer srcFile.Close()
+
+	// ── Decode ───────────────────────────────────────────────────────────────
+	srcExt := strings.ToLower(strings.TrimPrefix(filepath.Ext(inputPath), "."))
+	var img image.Image
+
+	switch srcExt {
+	case "webp":
+		img, err = webp.Decode(srcFile)
+	case "jpg", "jpeg":
+		img, err = jpeg.Decode(srcFile)
+	case "png":
+		img, err = png.Decode(srcFile)
+	default:
+		// Fallback: let the stdlib sniff the format
+		img, _, err = image.Decode(srcFile)
+	}
+	if err != nil {
+		return "", fmt.Errorf("image: decode failed (%s): %w", srcExt, err)
+	}
+
+	// ── Create output ────────────────────────────────────────────────────────
+	dstFile, err := os.Create(outputPath)
+	if err != nil {
+		return "", fmt.Errorf("image: cannot create output file: %w", err)
+	}
+	defer dstFile.Close()
+
+	// ── Encode ───────────────────────────────────────────────────────────────
+	switch targetExt {
+	case "jpg", "jpeg":
+		opts := &jpeg.Options{Quality: 92}
+		if err := jpeg.Encode(dstFile, img, opts); err != nil {
+			return "", fmt.Errorf("image: JPEG encode failed: %w", err)
+		}
+	case "png":
+		enc := png.Encoder{CompressionLevel: png.DefaultCompression}
+		if err := enc.Encode(dstFile, img); err != nil {
+			return "", fmt.Errorf("image: PNG encode failed: %w", err)
+		}
+	case "webp":
+		// The golang.org/x/image/webp package is decode-only.
+		// We encode as PNG and rename the output accordingly.
+		dstFile.Close()
+		pngPath := strings.TrimSuffix(outputPath, filepath.Ext(outputPath)) + ".png"
+		pngFile, err := os.Create(pngPath)
+		if err != nil {
+			return "", fmt.Errorf("image: cannot create PNG fallback output: %w", err)
+		}
+		defer pngFile.Close()
+		enc := png.Encoder{CompressionLevel: png.DefaultCompression}
+		if err := enc.Encode(pngFile, img); err != nil {
+			return "", fmt.Errorf("image: PNG fallback encode failed: %w", err)
+		}
+		_ = os.Remove(outputPath) // remove the empty placeholder
+		return pngPath, nil
+	default:
+		return "", fmt.Errorf("image: unsupported target format: .%s", targetExt)
+	}
+
+	return outputPath, nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION: Native Data Converter  (CSV ↔ JSON)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// convertDataNative handles two-way conversion between CSV and JSON.
+// CSV → JSON produces a JSON array of objects keyed by the header row.
+// JSON → CSV expects a JSON array of flat objects and emits a CSV file.
+func convertDataNative(inputPath, outputPath, srcExt, targetExt string) (string, error) {
+	switch {
+	case srcExt == "csv" && targetExt == "json":
+		return csvToJSON(inputPath, outputPath)
+	case srcExt == "json" && targetExt == "csv":
+		return jsonToCSV(inputPath, outputPath)
+	default:
+		return "", fmt.Errorf("data: unsupported conversion .%s → .%s", srcExt, targetExt)
+	}
+}
+
+// csvToJSON reads a CSV file and writes a JSON array of row-objects.
+func csvToJSON(inputPath, outputPath string) (string, error) {
+	srcFile, err := os.Open(inputPath)
+	if err != nil {
+		return "", fmt.Errorf("csv→json: cannot open source: %w", err)
+	}
+	defer srcFile.Close()
+
+	reader := csv.NewReader(srcFile)
+	reader.TrimLeadingSpace = true
+
+	headers, err := reader.Read()
+	if err != nil {
+		return "", fmt.Errorf("csv→json: failed reading header row: %w", err)
+	}
+
+	var rows []map[string]string
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("csv→json: parse error: %w", err)
+		}
+		row := make(map[string]string, len(headers))
+		for i, h := range headers {
+			if i < len(record) {
+				row[h] = record[i]
+			} else {
+				row[h] = ""
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	dstFile, err := os.Create(outputPath)
+	if err != nil {
+		return "", fmt.Errorf("csv→json: cannot create output: %w", err)
+	}
+	defer dstFile.Close()
+
+	enc := json.NewEncoder(dstFile)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(rows); err != nil {
+		return "", fmt.Errorf("csv→json: JSON encode failed: %w", err)
+	}
+
+	return outputPath, nil
+}
+
+// jsonToCSV reads a JSON array of flat objects and writes a CSV file.
+func jsonToCSV(inputPath, outputPath string) (string, error) {
+	srcBytes, err := os.ReadFile(inputPath)
+	if err != nil {
+		return "", fmt.Errorf("json→csv: cannot read source: %w", err)
+	}
+
+	// Accept a JSON array of objects where each object is map[string]any.
+	var rows []map[string]any
+	if err := json.Unmarshal(srcBytes, &rows); err != nil {
+		return "", fmt.Errorf("json→csv: JSON parse failed (expected array of objects): %w", err)
+	}
+	if len(rows) == 0 {
+		return "", fmt.Errorf("json→csv: input JSON array is empty")
+	}
+
+	// Collect ordered keys from the first object as headers.
+	headers := make([]string, 0)
+	headerSeen := map[string]bool{}
+	for _, row := range rows {
+		for k := range row {
+			if !headerSeen[k] {
+				headers = append(headers, k)
+				headerSeen[k] = true
+			}
+		}
+	}
+
+	dstFile, err := os.Create(outputPath)
+	if err != nil {
+		return "", fmt.Errorf("json→csv: cannot create output: %w", err)
+	}
+	defer dstFile.Close()
+
+	writer := csv.NewWriter(dstFile)
+	defer writer.Flush()
+
+	if err := writer.Write(headers); err != nil {
+		return "", fmt.Errorf("json→csv: failed writing header row: %w", err)
+	}
+
+	for _, row := range rows {
+		record := make([]string, len(headers))
+		for i, h := range headers {
+			if v, ok := row[h]; ok {
+				record[i] = fmt.Sprintf("%v", v)
+			}
+		}
+		if err := writer.Write(record); err != nil {
+			return "", fmt.Errorf("json→csv: failed writing row: %w", err)
+		}
+	}
+
+	if err := writer.Error(); err != nil {
+		return "", fmt.Errorf("json→csv: CSV writer error: %w", err)
+	}
+
+	return outputPath, nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION: Native Markdown → HTML Converter
+// ─────────────────────────────────────────────────────────────────────────────
+
+// htmlTemplate wraps the rendered Markdown body in a clean, self-contained HTML page.
+const htmlTemplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>%s</title>
+  <style>
+    body { max-width: 800px; margin: 40px auto; padding: 0 24px;
+           font-family: system-ui, sans-serif; line-height: 1.7; color: #1a1a1a; }
+    pre  { background: #f4f4f4; padding: 16px; border-radius: 6px; overflow-x: auto; }
+    code { font-family: 'JetBrains Mono', monospace; font-size: .9em; }
+    blockquote { border-left: 4px solid #ccc; margin: 0; padding-left: 16px; color: #555; }
+    img  { max-width: 100%%; }
+    table { border-collapse: collapse; width: 100%%; }
+    th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+    th { background: #f9f9f9; }
+  </style>
+</head>
+<body>
+%s
+</body>
+</html>
+`
+
+// convertMarkdownNative parses a Markdown file with goldmark and writes
+// a fully-formed HTML file. GFM tables, strikethrough, and autolinks are enabled.
+func convertMarkdownNative(inputPath, outputPath string) (string, error) {
+	srcBytes, err := os.ReadFile(inputPath)
+	if err != nil {
+		return "", fmt.Errorf("md→html: cannot read source: %w", err)
+	}
+
+	// Configure goldmark with GitHub-Flavoured Markdown extensions.
+	md := goldmark.New(
+		goldmark.WithExtensions(
+			extension.GFM,        // tables, strikethrough, task lists, autolinks
+			extension.Footnote,
+		),
+		goldmark.WithRendererOptions(
+			html.WithHardWraps(),
+			html.WithXHTML(),
+		),
+	)
+
+	var bodyBuf bytes.Buffer
+	if err := md.Convert(srcBytes, &bodyBuf); err != nil {
+		return "", fmt.Errorf("md→html: goldmark conversion failed: %w", err)
+	}
+
+	// Use the filename (without extension) as the page title.
+	title := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
+	full  := fmt.Sprintf(htmlTemplate, title, bodyBuf.String())
+
+	if err := os.WriteFile(outputPath, []byte(full), 0644); err != nil {
+		return "", fmt.Errorf("md→html: cannot write output: %w", err)
+	}
+
+	return outputPath, nil
 }
